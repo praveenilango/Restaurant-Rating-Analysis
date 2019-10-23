@@ -1,0 +1,161 @@
+---
+title: "Zomato Restaurant Analysis"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(mvtnorm)
+library(multcomp)
+library(agricolae)
+library(cowplot)
+library(gridExtra)
+```
+
+```{r echo=FALSE}
+# Load Zomato restaurant data
+zomato_raw <- read.csv("./zomato.csv")
+
+# Load Country code
+country_code <- readxl::read_xlsx("./Country-Code.xlsx")
+
+##head(zomato_raw)
+##head(country_code)
+
+# Add Country name to the data
+zomato <- merge(zomato_raw, country_code, by.x="Country.Code", by.y="Country Code")
+##head(zomato)
+
+# Filter for country
+filter_india <- zomato$Country == "India"
+zomato_india <- zomato[filter_india,]
+##head(zomato_india)
+
+# Filter for city
+filter_chennai <- zomato_india$City == "Chennai"
+filter_bangalore <- zomato_india$City == "Bangalore"
+filter_coimbatore <- zomato_india$City == "Coimbatore"
+filter_goa <- zomato_india$City == "Goa"
+
+zomato_southindia <- zomato_india[filter_chennai|filter_bangalore|filter_coimbatore,]
+
+```
+
+
+## Introduction
+
+  The data used in this project provides information about resteraunts and their associated attributes from around the world. The data has been collected from the Zomato API. Zomato is an Indian restaurant search and discovery service founded in 2008. It currently operates in 24 countries and provides information and reviews of restaurants.
+  The primary purpose of this project is to compare and contrast the difference in aggregate ratings of restaurants located at key cities in South India. The three cities chosen for this analysis are:
+
+*Chennai
+*Coimbatore
+*Bangalore
+
+#### Research Question:
+
+*Does the aggregate ratings of restaurants at different key cities in the southern part of India differ from each other?*
+
+#### Description of Response Variable
+
+From the below boxplot, we can observe that the mean aggregate rating (green points) of restaurants in *Coimbatore* is slightly less when compared to *Chennai* and *Bangalore*.
+
+```{r echo=FALSE}
+ggplot(zomato_southindia, aes(City,Aggregate.rating)) +
+  geom_boxplot(fill="red", alpha = 0.4) +
+  stat_summary(fun.y = mean, geom = "point", shape = 20, size = 10, colour = "green")
+```
+
+
+## Methods
+
+#### 1) ANOVA & Tucky-Kramer (Multiple Comparison)
+
+The ANOVA test is used to answer the primary research question and Tucky-Kramer is used to examines all pairwise differences between the groups. The following assumptions have to be met to carry out the tests:
+
+ *Independence within groups
+ *Independence between groups
+ *Normality of populations
+ *Equal variances in all populations
+ 
+  The objective of the research question is to evaluate relationship between the means of three different population groups and the ANOVA test is designed exactly for this purpose, given that all the assumptions mentioned above are met.
+  
+##### ANOVA
+
+*Null hypothesis*: $H_0:$: The population mean aggregate ratings of restaurants $\mu_j$ of all the groups are equal to each other.
+
+$H_0$:  $\mu_1$ = $\mu_2$ = $\mu_3$
+
+**Alternative Hypothesis** $H_A:$: At least one of the population mean aggregate ratings of restaurants $\mu_j$ is not equal to the others.
+
+```{r echo=FALSE}
+anova(lm(Aggregate.rating ~ City, data = zomato_southindia))
+```
+
+##### Result
+
+$F-Statistic$ = 3.4144
+
+$p-value$ = 0.03976
+
+**Conclusion** : We reject the null hypothesis $H_0$ that the population mean aggregate ratings of restaurants in all the groups are equal at level $\alpha$ = 0.05 in favour of the alternative hypothesis $H_A$. We have strong evidence that at least one of the groups have a population mean aggregate rating is not equal to the others. $p-value$ = 0.03976 < $\alpha$ = 0.05.
+
+This could be due to the fact that Chennai and Bangalore are IT hubs whereas Coimbatore is a more conservative city.
+
+##### Tucky-Kramer (Multiple Comparison)
+
+As there is evidence that the population means are different, further eveluation using *pairwise* comparison is carried out using Tucky-Kramer procedure in order to determine which population means are different.
+```{r echo = FALSE}
+mod <- lm (Aggregate.rating ~ City, data = zomato_southindia)
+mod_tuckey <- glht(mod,  linfct = mcp(City = "Tukey"))
+summary(mod_tuckey)
+confint(mod_tuckey)
+```
+
+We observe that the test for *Coimbatore - Bangalore* is significant, whereas the tests for *Chennai - Bangalore* and *Coimbatore - Chennai* are not significant.
+
+## Assesment
+
+1.Normality
+```{r echo=FALSE}
+mod <- lm (Aggregate.rating ~ City, data = zomato_southindia)
+zomato_southindia$fitted <- mod$fitted.values
+zomato_southindia$resid <- mod$residuals
+hist <- ggplot(zomato_southindia, aes(Aggregate.rating)) +
+  geom_bar() +
+  ggtitle("Aggregate Rating Histogram") +
+  theme_grey()
+qq <- ggplot(zomato_southindia, aes(sample=resid)) +
+  stat_qq(distribution=qt, dparams=9) +
+  stat_qq_line(colour = "red") +
+  ggtitle("Quantile-Quantile plot")
+
+qq
+```
+
+From the histogram, it is observe that the distribution is symmetric implying that the sample size need not to too large for the test to give an approximately valid inference. Thus normality assumption is not violated.
+
+2.Equal variances in all populations
+```{r echo=FALSE}
+mod <- lm (Aggregate.rating ~ City, data = zomato_southindia)
+zomato_southindia$fitted <- mod$fitted.values
+zomato_southindia$resid <- mod$residuals
+ggplot(zomato_southindia, aes(x=fitted, y=resid, colour=City)) +
+  geom_point() +
+  ggtitle("Residual Diagnostics (fitted vs residuals)") +
+  theme_grey()
+```
+
+From the residual diagnostics above, it is evident that there are no outliers and the variances are similar for all groups.
+
+4.Independence within and between groups
+
+It is assumed that the aggregate ratings of restaurants are independent within and between each city.
+
+Therefore, all of the assumptions for the *ANOVA* test have been met.
+
+## Conclusion
+
+  The analysis indicated that the restaurant ratings differ withing the three chosen cities. The results were not surprising as two of the cities, Chennai and Banglore are IT hubs were restaurants have a high demand for cutomers. Whereas, Coimbatore being a conservative city does not have as high of a demand. It was surprising to see that there was no statistical significance in the comparison between Chennai and Coimbatore. 
